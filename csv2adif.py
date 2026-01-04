@@ -1,11 +1,12 @@
 #!/usr/bin/python
 import maidenhead as mh
+import csv
 #
 #######################
 ##### csv2adif.py #####
 #######################
 # Input csv file from libreoffice Calc (or other spreadsheet software)
-# QSO data order: Date Time_on Time_off Call Mode Frequency RST_Sent RST_Rcvd Name QTH QSL_Sent QSL_Rcvd Gridsquare QSL_Via Comment
+# QSO data fields: DATE TIME_ON TIME_OFF CALL MODE FREQ RST_SENT RST_RCVD NAME QTH QSL_SENT QSL_RCVD GRIDSQUARE QSL_VIA COMMENT
 # Date format: YYYYMMDD
 # Time format: HHMM
 # Frequency: in kHz
@@ -15,7 +16,7 @@ import maidenhead as mh
 # Enter "0" if no data in a field.
 # ADIF output file to be used by cqrlog software
 #
-# This script uses maidenhead python package. Install it in an activated virtual environment with: pip install maidenhead.
+# This script uses maidenhead python package. Install it in an activated virtual environment with: pip install -r requirements.txt.
 #
 # F6HSV - November 2025
 ###############################################################################################################################################
@@ -108,97 +109,67 @@ def locator_to_coordinates(locator):
 
     return lat, lon
 
+#
+# Write the data to the output file
+# Parameters:
+# qso: dictionary from csv.DictReader
+# f: adif file handle
+#
+# Frequency converted in MHz
+# Name and QTH encoded with UTF-8 characters
+#
+def WriteToAdifFile(qso, f):
+    for key, value in qso.items():
+        if key == 'FREQ':
+            f.write('<' + key + ':' + str(len(str(float(value)/1000))) + '>' + str(float(value)/1000) + ' ')
+        elif key == 'NAME' or key == 'QTH':
+            f.write('<' + key + '_INTL:' + str(len(value)) + '>' + value + ' ')
+        elif key == 'COMMENT':
+            f.write('<' + key + ':' + str(len(value)) + '>' + value + ' ')
+        else:
+            f.write('<' + key + ':' + str(len(value)) + '>' + value.upper() + ' ')
+    f.write('<EOR>' + "\n")
+    return
+
 ################
 ##### MAIN #####
 ################
 
 # Input / output files
 fileName = input("Enter the csv input file name, without extension: ")
-inputFileName = fileName + '.csv'
-print("csv file name: ", inputFileName)
-infile = open(inputFileName, mode = "r")
+CsvFileName = fileName + '.csv'
+print("csv file name: ", CsvFileName)
 
-outputFileName = fileName + '.adi'
-print("adi file name: ", outputFileName)
-outfile = open(outputFileName, mode = 'w')
+AdifFileName = fileName + '.adi'
+print("ADIF file name: ", AdifFileName)
+adiffile = open(AdifFileName, mode = 'w')
 
-# Read the csv file line by line up to the end
-csvline = infile.readline()
-while csvline:
-  # Testing the first line of the cvs file to remove the title (if exists)
-  firstline_firstdata = csvline.split()[0][0:8]
-  if firstline_firstdata == 'QSO_DATE':
-    csvline = infile.readline()
+with open(CsvFileName, "r", encoding="utf-8") as csvfile:
+    csv_dict = csv.DictReader(csvfile, delimiter = " ")
 
-  # Splitting each line into data
-  dataline = csvline.split()
+    for qso in csv_dict:
+        # Some adjustments before writing data in output file...
+        # Case of blank field: Data "0" replaced by nothing
+        for key, value in qso.items():
+            if value == "0":
+                qso[key] = ''
 
-  # Some adjustments before writing data in output file...
-  # Case of blank field: Data "0" replaced by nothing
-  i = 0
-  while i < 15:
-      if dataline[i] == '0':
-          dataline[i] = ''
-      i = i+1
+        # Time on and off: consideration of time between 0000 to 1000
+        qso['TIME_ON'] = qso['TIME_ON'].zfill(4)
+        qso['TIME_OFF'] = qso['TIME_OFF'].zfill(4)
 
-  # Comment: concatenation of datas and deleting of few characters (, [ ] ' ")
-  comment = str(dataline[14:]) # concatenation
-  comment = comment.replace(',' , '')
-  comment = comment.replace('[' , '')
-  comment = comment.replace(']' , '')
-  comment = comment.replace('\'' , '')
-  comment = comment.replace('"' , '')
+        # Old European locator system: converted to Maidenhead locator system
+        if len(qso['GRIDSQUARE']) == 5:
+            latitude, longitude = locator_to_coordinates(qso['GRIDSQUARE'])
+            qso['GRIDSQUARE'] = mh.to_maiden(latitude, longitude, 3)
 
-  # Time on and off: consideration of time between 0000 to 1000
-  if str(len(dataline[1])) == '1':
-    time_on = '000' + dataline[1]
-  elif str(len(dataline[1])) == '2':
-    time_on = '00' + dataline[1]
-  elif str(len(dataline[1])) == '3':
-    time_on = '0' + dataline[1]
-  else :
-    time_on = dataline[1]
-
-  if str(len(dataline[2])) == '1':
-    time_off = '000' + dataline[2]
-  elif str(len(dataline[2])) == '2':
-    time_off = '00' + dataline[2]
-  elif str(len(dataline[2])) == '3':
-    time_off = '0' + dataline[2]
-  else :
-    time_off = dataline[2]
-
-  # Old European locator system: converted to Maidenhead locator system
-  if str(len(dataline[12])) == '5':
-      latitude, longitude = locator_to_coordinates(dataline[12])
-      locator = mh.to_maiden(latitude, longitude, 3)
-  else :
-      locator = dataline[12]
-
-  #
-  # Write the data to the output file
-  # See the ADIF spec on adif.org web site ...
-  # Target : cqrlog software - ADIF import
-  #
-  outfile.write('<QSO_DATE:'    + str(len(dataline[0]))                  + '>' + dataline[0]                  + ' ' +
-                '<TIME_ON:'     + str(len(time_on))                      + '>' + time_on                      + ' ' +
-                '<TIME_OFF:'    + str(len(time_off))                     + '>' + time_off                     + ' ' +
-                '<CALL:'        + str(len(dataline[3]))                  + '>' + dataline[3].upper()          + ' ' +
-                '<MODE:'        + str(len(dataline[4]))                  + '>' + dataline[4].upper()          + ' ' +
-                '<FREQ:'        + str(len(str(float(dataline[5])/1000))) + '>' + str(float(dataline[5])/1000) + ' ' +
-                '<RST_SENT:'    + str(len(dataline[6]))                  + '>' + dataline[6]                  + ' ' +
-                '<RST_RCVD:'    + str(len(dataline[7]))                  + '>' + dataline[7]                  + ' ' +
-                '<NAME_INTL:'   + str(len(dataline[8]))                  + '>' + dataline[8]                  + ' ' +
-                '<QTH_INTL:'    + str(len(dataline[9]))                  + '>' + dataline[9]                  + ' ' +
-                '<QSL_SENT:'    + str(len(dataline[10]))                 + '>' + dataline[10].upper()         + ' ' +
-                '<QSL_RCVD:'    + str(len(dataline[11]))                 + '>' + dataline[11].upper()         + ' ' +
-                '<GRIDSQUARE:'  + str(len(locator))                      + '>' + locator.upper()              + ' ' +
-                '<QSL_VIA:'     + str(len(dataline[13]))                 + '>' + dataline[13].upper()         + ' ' +
-                '<COMMENT:'     + str(len(comment))                      + '>' + comment                      + ' ' +
-                '<EOR>'+"\n")
-  csvline = infile.readline()
-#
-print("write done!")
-infile.close()
-outfile.close()
-#
+        #
+        # Write the data to the output file
+        # See the ADIF spec on adif.org web site ...
+        # Target : cqrlog software - ADIF import
+        #
+        WriteToAdifFile(qso, adiffile)
+        #
+    print("Write done!")
+    adiffile.close()
+    #
