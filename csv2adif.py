@@ -115,16 +115,13 @@ def locator_to_coordinates(locator):
 # qso: dictionary from csv.DictReader
 # f: adif file handle
 #
-# Frequency converted in MHz
 # Name and QTH encoded with UTF-8 characters
 #
 def WriteToAdifFile(qso, f):
     for key, value in qso.items():
-        if key == 'FREQ':
-            f.write('<' + key + ':' + str(len(str(float(value)/1000))) + '>' + str(float(value)/1000) + ' ')
-        elif key == 'NAME' or key == 'QTH':
+        if key == 'NAME' or key == 'QTH':
             f.write('<' + key + '_INTL:' + str(len(value)) + '>' + value + ' ')
-        elif key == 'COMMENT':
+        elif key == 'COMMENT' or key == 'FREQ':
             f.write('<' + key + ':' + str(len(value)) + '>' + value + ' ')
         else:
             f.write('<' + key + ':' + str(len(value)) + '>' + value.upper() + ' ')
@@ -157,6 +154,9 @@ with open(CsvFileName, "r", encoding="utf-8") as csvfile:
         # Time on and off: consideration of time between 0000 to 1000
         qso['TIME_ON'] = qso['TIME_ON'].zfill(4)
         qso['TIME_OFF'] = qso['TIME_OFF'].zfill(4)
+
+        # Frequency converted to MHz
+        qso['FREQ'] = str(float(qso['FREQ'])/1000)
 
         # Old European locator system: converted to Maidenhead locator system
         if len(qso['GRIDSQUARE']) == 5:
